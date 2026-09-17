@@ -7,6 +7,8 @@ import { XBookmarksView, isBookmarksUrl } from './view';
 import { XBookmarksSyncSettingTab } from './settings-tab';
 import { WhatsNewModal, parseChangelog, notesSince } from './whats-new-modal';
 
+import { installMediaSync } from "./media-sync";
+
 interface ElectronWebview extends HTMLElement {
   executeJavaScript(code: string): Promise<unknown>;
 }
@@ -198,6 +200,7 @@ export default class XBookmarksSync extends Plugin {
 
     this.settingTab = new XBookmarksSyncSettingTab(this.app, this);
     this.addSettingTab(this.settingTab);
+    await installMediaSync(this); 
   }
 
   onunload() {
