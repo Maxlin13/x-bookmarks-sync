@@ -1,11 +1,11 @@
 import { Plugin } from "obsidian";
 import {
-  applyLocalEmbeds,
   downloadTweetMedia,
   ensureFolder,
   tweetHasMedia,
   UrlMap,
 } from "./downloader";
+import { applyLocalEmbeds } from "./downloader";
 import {
   MediaSyncState,
   patchSaveSettings,
@@ -13,6 +13,8 @@ import {
   registerMediaCommands,
 } from "./settings";
 import { HostPlugin, LOG_PREFIX, MediaTweet } from "./types";
+import { backfillExistingMedia } from "./backfill";
+import { repairMediaFilenames } from "./repair";
 
 /**
  * Envuelve saveBookmarksToVault() y formatTweet() sin reescribirlos:
@@ -79,6 +81,16 @@ export async function installMediaSync(plugin: Plugin): Promise<void> {
     patchSettingsTab(host, state);
     patchImportPipeline(host, state);
     registerMediaCommands(host, state);
+    host.addCommand({
+      id: "backfill-media-download",
+      name: "Redownload media in existing notes",
+      callback: () => void backfillExistingMedia(host, state.settings),
+    });
+    host.addCommand({
+      id: "repair-media-filenames",
+      name: "Repair broken media filenames",
+      callback: () => void repairMediaFilenames(host),
+    });
     console.debug(LOG_PREFIX, "instalado");
   } catch (e) {
     console.error(LOG_PREFIX, "no se pudo instalar el módulo de medios", e);

@@ -6,7 +6,7 @@ const ALLOWED_EXT = new Set(["jpg", "jpeg", "png", "gif", "webp", "avif", "bmp"]
 /** url remota → ruta local dentro del vault */
 export type UrlMap = Map<string, string>;
 
-function safeExt(url: string): string {
+export function safeExt(url: string): string {
   try {
     const parts = new URL(url).pathname.split(".");
     if (parts.length > 1) {
@@ -35,7 +35,7 @@ export async function ensureFolder(vault: Vault, path: string): Promise<boolean>
   return vault.getAbstractFileByPath(path) instanceof TFolder;
 }
 
-async function downloadOne(url: string, absPath: string, vault: Vault): Promise<string | null> {
+export async function downloadOne(url: string, absPath: string, vault: Vault): Promise<string | null> {
   try {
     const existing = vault.getAbstractFileByPath(absPath);
     if (existing instanceof TFile && existing.stat.size > 0) return absPath;
@@ -71,6 +71,19 @@ async function runJobs(jobs: DownloadJob[], vault: Vault, concurrency: number): 
     Array.from({ length: Math.min(concurrency, jobs.length) }, () => worker()),
   );
   return map;
+}
+
+export function applyLocalEmbeds(markdown: string, map: UrlMap): string {
+  let out = markdown;
+  for (const [remote, local] of map) {
+    const token = `![](${remote})`;
+    if (out.includes(token)) {
+      out = out.split(token).join(`![[${local}]]`);
+    } else {
+      console.warn(LOG_PREFIX, "no se encontró el embed esperado para", remote);
+    }
+  }
+  return out;
 }
 
 export function tweetHasMedia(tweet: MediaTweet): boolean {
@@ -109,22 +122,4 @@ export async function downloadTweetMedia(
   add(tweet.quoted?.videoPosters, "qposter");
 
   return jobs.length ? runJobs(jobs, vault, concurrency) : new Map();
-}
-
-/**
- * Sustituye en el Markdown ya generado cada `![](url-remota)` por `![[ruta-local]]`.
- * Si el upstream cambia el formato de embed, esto simplemente no encuentra nada:
- * las imágenes quedan descargadas pero la nota sigue apuntando a la URL remota.
- */
-export function applyLocalEmbeds(markdown: string, map: UrlMap): string {
-  let out = markdown;
-  for (const [remote, local] of map) {
-    const token = `![](${remote})`;
-    if (out.includes(token)) {
-      out = out.split(token).join(`![[${local}]]`);
-    } else {
-      console.warn(LOG_PREFIX, "no se encontró el embed esperado para", remote);
-    }
-  }
-  return out;
 }

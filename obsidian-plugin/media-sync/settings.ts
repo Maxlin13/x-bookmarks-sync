@@ -7,11 +7,6 @@ import {
   MediaSyncSettings,
 } from "./types";
 
-/**
- * Estado persistido en data.json bajo `mediaSync`.
- * Vive aparte de plugin.settings porque el onload() del upstream reconstruye ese
- * objeto clave por clave y descartaría cualquier campo que no conozca.
- */
 export class MediaSyncState {
   private constructor(
     private readonly plugin: HostPlugin,
@@ -27,7 +22,6 @@ export class MediaSyncState {
     });
   }
 
-  /** Reinyecta nuestro bloque en data.json sin tocar el resto. */
   async save(): Promise<void> {
     const data = (await this.plugin.loadData()) ?? {};
     data[MEDIA_SETTINGS_KEY] = { ...this.settings };
@@ -35,7 +29,6 @@ export class MediaSyncState {
   }
 }
 
-/** Tras cada saveSettings() del upstream, volvemos a escribir nuestro bloque. */
 export function patchSaveSettings(plugin: HostPlugin, state: MediaSyncState): void {
   const original = plugin.saveSettings.bind(plugin);
   plugin.saveSettings = async (): Promise<void> => {
@@ -44,66 +37,65 @@ export function patchSaveSettings(plugin: HostPlugin, state: MediaSyncState): vo
   };
 }
 
-function renderMediaSettings(containerEl: HTMLElement, state: MediaSyncState): void {
-  new Setting(containerEl)
-    .setName("Download media")
-    .setDesc(
-      "Guarda imágenes y miniaturas de vídeo en el vault y usa embeds ![[...]] en vez de URLs remotas.",
-    )
-    .addToggle((toggle) =>
-      toggle.setValue(state.settings.downloadMedia).onChange(async (value) => {
-        state.settings.downloadMedia = value;
-        await state.save();
-      }),
-    );
-
-  new Setting(containerEl)
-    .setName("Media folder")
-    .setDesc("Subcarpeta, dentro de la carpeta de bookmarks, donde se guardan los medios.")
-    .addText((text) =>
-      text
-        .setPlaceholder("assets")
-        .setValue(state.settings.mediaSubfolder)
-        .onChange(async (value) => {
-          state.settings.mediaSubfolder =
-            value.trim().replace(/^\/+|\/+$/g, "") || DEFAULT_MEDIA_SETTINGS.mediaSubfolder;
-          await state.save();
-        }),
-    );
+function buildMediaDefinitions(state: MediaSyncState): unknown[] {
+  return [
+    {
+      name: "Download media",
+      desc: "Guarda imágenes y miniaturas de vídeo en el vault y usa embeds ![[...]] en vez de URLs remotas.",
+      render: (setting: Setting) => {
+        setting.addToggle((toggle) =>
+          toggle.setValue(state.settings.downloadMedia).onChange(async (value) => {
+            state.settings.downloadMedia = value;
+            await state.save();
+          }),
+        );
+      },
+    },
+    {
+      name: "Media folder",
+      desc: "Subcarpeta, dentro de la carpeta de bookmarks, donde se guardan los medios.",
+      render: (setting: Setting) => {
+        setting.addText((text) =>
+          text
+            .setPlaceholder("assets")
+            .setValue(state.settings.mediaSubfolder)
+            .onChange(async (value) => {
+              state.settings.mediaSubfolder =
+                value.trim().replace(/^\/+|\/+$/g, "") || DEFAULT_MEDIA_SETTINGS.mediaSubfolder;
+              await state.save();
+            }),
+        );
+      },
+    },
+  ];
 }
 
 function findSettingTab(plugin: HostPlugin): PluginSettingTab | null {
+  const own = (plugin as unknown as { settingTab?: PluginSettingTab }).settingTab;
+  if (own) return own;
+
   const setting = (plugin.app as unknown as { setting?: { pluginTabs?: PluginSettingTab[] } }).setting;
   const tabs = setting?.pluginTabs ?? [];
-  const match = tabs.find(
-    (tab) => (tab as unknown as { id?: string }).id === plugin.manifest.id,
-  );
-  return match ?? null;
+  return tabs.find((tab) => (tab as unknown as { id?: string }).id === plugin.manifest.id) ?? null;
 }
 
-/**
- * Añade los dos ajustes al final de la pestaña existente, sin editar settings-tab.ts.
- * Si no se encuentra la pestaña, el comando de respaldo sigue permitiendo activarlo.
- */
 export function patchSettingsTab(plugin: HostPlugin, state: MediaSyncState): void {
   const tab = findSettingTab(plugin);
   if (!tab) {
-    console.warn(LOG_PREFIX, "no se encontró la pestaña de ajustes; se usará solo el comando");
+    console.warn(LOG_PREFIX, "no se encontró la pestaña de ajustes; usa el comando de la paleta");
     return;
   }
 
-  const originalDisplay = tab.display.bind(tab);
-  tab.display = (): void => {
-    originalDisplay();
-    try {
-      renderMediaSettings(tab.containerEl, state);
-    } catch (e) {
-      console.error(LOG_PREFIX, "no se pudieron pintar los ajustes de medios", e);
-    }
-  };
+  const anyTab = tab as unknown as { getSettingDefinitions?: () => unknown[] };
+  if (typeof anyTab.getSettingDefinitions !== "function") {
+    console.warn(LOG_PREFIX, "la pestaña no expone getSettingDefinitions(); usa el comando de la paleta");
+    return;
+  }
+
+  const original = anyTab.getSettingDefinitions.bind(anyTab);
+  anyTab.getSettingDefinitions = (): unknown[] => [...original(), ...buildMediaDefinitions(state)];
 }
 
-/** Respaldo, y atajo cómodo: alternar la descarga desde la paleta de comandos. */
 export function registerMediaCommands(plugin: HostPlugin, state: MediaSyncState): void {
   plugin.addCommand({
     id: "toggle-media-download",
